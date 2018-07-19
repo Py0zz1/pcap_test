@@ -1,6 +1,6 @@
 #include <pcap.h>
 #include <unistd.h>
-#include <netinet/in.h>
+#include <netinet/udp.h>
 #include <stdlib.h>
 #include <string.h>
 #include <arpa/inet.h>
@@ -12,13 +12,18 @@ void net_err(uint32_t chk,pcap_if_t *alldevs);
 uint16_t print_ether_header(const uint8_t *pkt_data);
 int print_ip_header(const uint8_t *pkt_data);
 int print_tcp_header(const uint8_t *pkt_data);
+int print_udp_header(const uint8_t *pkt_data);
 void print_data(const uint8_t *pkt_data);
 
+
 int PORT_FLAG = 1;
+uint16_t TOTAL_LENGTH;
+uint16_t ETH_TYPE=0;
+uint8_t PROTO=0;
 
 int main(int argc, char **argv)
 {
-    int IP_HEADER_SIZE,TCP_HEADER_SIZE;
+    int IP_HEADER_SIZE,TCP_HEADER_SIZE,UDP_HEADER_SIZE;
     pcap_if_t *alldevs = NULL;
     pcap_if_t *dev;
     pcap_t *use_dev;
@@ -57,28 +62,46 @@ int main(int argc, char **argv)
     {
         if (res == 0) continue;
 
+        ETH_TYPE = print_ether_header(pkt_data);
 
-        if((print_ether_header(pkt_data))==0x0800)
+        if(ETH_TYPE==0x0800)
+        {
             pkt_data += ETH_HEADER_SIZE;
+            IP_HEADER_SIZE = print_ip_header(pkt_data); // IP_Header_Size Check Fixed
+            pkt_data += IP_HEADER_SIZE;
+
+            if(PORT_FLAG && PROTO == 0x06)
+            {
+                printf("PROTOCOL] TCP %X\n",PROTO);
+                TCP_HEADER_SIZE = print_tcp_header(pkt_data); // TCP_Header_Size Check Fixe
+                pkt_data += TCP_HEADER_SIZE;
+
+                if(TOTAL_LENGTH - (ETH_HEADER_SIZE+IP_HEADER_SIZE+TCP_HEADER_SIZE)) // DATA_packet Check Fixed
+                    print_data(pkt_data);
+            }
+            else if(PORT_FLAG && PROTO == 0x11)
+            {
+                printf("PROTOCOL UDP %X\n",PROTO);
+                UDP_HEADER_SIZE = print_udp_header(pkt_data);
+                pkt_data += UDP_HEADER_SIZE;
+
+                if(TOTAL_LENGTH - (ETH_HEADER_SIZE+IP_HEADER_SIZE+UDP_HEADER_SIZE)) // DATA_packet Check Fixed
+                    print_data(pkt_data);
+            }
+            else
+                printf("PROTOCOL ICMP %X\n",PROTO);
+
+
+        }
         else
             continue;
 
-        IP_HEADER_SIZE = print_ip_header(pkt_data); // IP_Header_Size Check Fixed
-        pkt_data += IP_HEADER_SIZE;
-        if(PORT_FLAG)
-            TCP_HEADER_SIZE = print_tcp_header(pkt_data); // TCP_Header_Size Check Fixed
-        else
-            pkt_data += TCP_HEADER_SIZE;
 
-        if(header->caplen - (ETH_HEADER_SIZE+IP_HEADER_SIZE+TCP_HEADER_SIZE)) // DATA_packet Check Fixed
-            print_data(pkt_data);
     }
 
 }
 
-
-
-///////////////////////////////////print_function///////////////////////////////////////
+/*print_function*/
 uint16_t print_ether_header(const uint8_t *pkt_data)
 {
     struct eth_header *eh;
@@ -90,7 +113,7 @@ uint16_t print_ether_header(const uint8_t *pkt_data)
     printf("\nDes MAC : ");
     for (int i = 0; i <= 5; i++)printf("%02X ", eh->des_mac[i]);
     printf("\n");
-
+    PORT_FLAG = 1;
     return ether_type;
 }
 
@@ -98,28 +121,35 @@ int print_ip_header(const uint8_t *pkt_data)
 {
     struct ip_header *ih;
     ih = (struct ip_header *)pkt_data;
-    if (ih->ip_protocol == 0x01)
+
+    if (ih->ip_protocol == 0x06)
     {
+        PROTO = ih->ip_protocol;
+        printf("[TCP]");
+        printf("Src IP : %s\n", inet_ntoa(ih->ip_src_add));
+        printf("[TCP]");
+        printf("Des IP : %s\n", inet_ntoa(ih->ip_des_add));
+    }
+    else if (ih->ip_protocol == 0x11)
+    {
+        PROTO = ih->ip_protocol;
+        printf("[UDP]");
+        printf("Src IP : %s\n", inet_ntoa(ih->ip_src_add));
+        printf("[UDP]");
+        printf("Des IP : %s\n", inet_ntoa(ih->ip_des_add));
+    }
+    else //(ih->ip_protocol == 0x01)
+    {
+        PROTO = ih->ip_protocol;
         PORT_FLAG = 0;
         printf("[ICMP]");
         printf("Src IP : %s\n", inet_ntoa(ih->ip_src_add));
         printf("[ICMP]");
         printf("Des IP : %s\n", inet_ntoa(ih->ip_des_add));
     }
-    if (ih->ip_protocol == 0x06)
-    {
-        printf("[TCP]");
-        printf("Src IP : %s\n", inet_ntoa(ih->ip_src_add));
-        printf("[TCP]");
-        printf("Des IP : %s\n", inet_ntoa(ih->ip_des_add));
-    }
-    if (ih->ip_protocol == 0x17)
-    {
-        printf("[UDP]");
-        printf("Src IP : %s\n", inet_ntoa(ih->ip_src_add));
-        printf("[UDP]");
-        printf("Des IP : %s\n", inet_ntoa(ih->ip_des_add));
-    }
+
+    TOTAL_LENGTH = ntohs(ih->ip_total_length);
+    printf("TOTAL_LEN : %d\n",((char)ih->ip_header_length)*4);
     return ((char)ih->ip_header_length)*4;
 }
 int print_tcp_header(const uint8_t *pkt_data)
@@ -131,14 +161,27 @@ int print_tcp_header(const uint8_t *pkt_data)
     printf("Des Port : %d\n", ntohs(th->des_port));
     printf("====================\n\n");
 
-    PORT_FLAG = 1;  // FALG RESET..
-    return ((char)th->offset)*5;
+    return ((char)th->offset)*4;
 }
+
+int print_udp_header(const uint8_t *pkt_data)
+{
+    struct udp_header *uh;
+    uh = (struct udp_header *)pkt_data;
+
+    printf("Src Port : %d\n", ntohs(uh->uh_sport));
+    printf("Dst Port : %d\n", ntohs(uh->uh_dport));
+    printf("====================\n\n");
+
+    return (ntohs(uh->len));
+
+}
+
 
 void print_data(const uint8_t *pkt_data)
 {
     printf("========DATA========\n");
-    for(int i=0; i<14; i++)
+    for(int i=0; i<16; i++)
         printf("%x",pkt_data[i]);
     printf("\n====================\n\n");
 }
