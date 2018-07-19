@@ -46,10 +46,11 @@ struct arp_header
 };
 #pragma pack(pop)
 
+#pragma pack(push, 1)
 struct ip_header
 {
-    uint8_t ip_version : 4;
     uint8_t ip_header_length : 4;
+    uint8_t ip_version : 4;
     uint8_t ip_TOS;
     uint16_t ip_total_length;
     uint16_t ip_iden;
@@ -65,16 +66,19 @@ struct ip_header
     struct in_addr ip_des_add;
     //20bytes
 };
+#pragma pack(pop)
 
+#pragma pack(push, 2)
 struct tcp_header
 {
     uint16_t src_port;
     uint16_t des_port;
     uint32_t sqn_num;
     uint32_t ack_num;
-    uint8_t offset : 4;
+
     uint8_t ns : 1;
     uint8_t reserve : 3;
+    uint8_t offset : 4;
     uint8_t flag_cwr : 1;
     uint8_t flag_ece : 1;
     uint8_t flag_urgent : 1;
@@ -88,3 +92,27 @@ struct tcp_header
     uint16_t urgent_point;
     //20bytes
 };
+#pragma pack(pop)
+
+#pragma pack(push,2)
+struct udp_header
+{
+  __extension__ union
+  {
+    struct
+    {
+      u_int16_t uh_sport;		/* source port */
+      u_int16_t uh_dport;		/* destination port */
+      u_int16_t uh_ulen;		/* udp length */
+      u_int16_t uh_sum;		/* udp checksum */
+    };
+    struct
+    {
+      u_int16_t source;
+      u_int16_t dest;
+      u_int16_t len;
+      u_int16_t check;
+    };
+  };
+};
+#pragma pack(pop)
